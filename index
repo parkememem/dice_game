@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GAS 楕円ボードすごろくゲーム (3Dサイコロ)</title>
-    <!-- Tailwind CSS ロード -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* カスタム CSS およびフォント設定 */
@@ -118,6 +117,7 @@
             transform: translate(-50%, -50%);
             z-index: 10;
             perspective: 500px; /* 3D 奥行きを追加 */
+            pointer-events: none; /* 클릭 이벤트 무시 */
         }
         
         .dice-cube {
@@ -168,32 +168,26 @@
         <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">🎲 GAS 楕円ボードすごろくゲーム 🎲</h1>
         <p class="text-center text-gray-500 mb-6">プレイヤー(🔴) vs コンピュータ(🔵)。全30ステージ！</p>
 
-        <!-- ゲーム状態およびサイコロ領域 (上部に配置) -->
         <div class="flex flex-col md:flex-row items-center justify-center bg-gray-100 p-4 rounded-lg shadow-inner mb-6 space-y-4 md:space-y-0 md:space-x-8">
             
-            <!-- ステータスメッセージ -->
             <div id="statusMessage" class="text-xl font-semibold h-8 text-center text-red-600 w-full md:w-1/3 flex items-center justify-center">
                 プレイヤーのターンです。
             </div>
             
-            <!-- サイコロボタン (ボード中央ではなく 위쪽 상태창에 배치) -->
             <div class="flex flex-col items-center w-full md:w-1/3">
                 <button id="rollButton" 
                         class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full shadow-lg transition duration-150 ease-in-out transform hover:scale-105 disabled:opacity-50"
                         onclick="rollDice()">
-                    サイコロを振る (自動停止)
+                    サイコロを振る
                 </button>
             </div>
             
-            <!-- 結果メッセージ -->
             <div id="gameResult" class="text-center text-2xl font-extrabold text-green-700 hidden w-full md:w-1/3 p-2 bg-yellow-100 rounded-lg"></div>
 
         </div>
 
-        <!-- ボードコンテナ (タワー経路) -->
         <div class="board-wrapper">
             <div id="diceArea">
-                <!-- 3Dサイコロコンポーネント -->
                 <div id="dice-cube" class="dice-cube">
                     <div class="face front" data-num="1">1</div>
                     <div class="face back" data-num="6">6</div>
@@ -204,8 +198,7 @@
                 </div>
             </div>
             <div id="gameBoard" class="board-container">
-                <!-- JavaScript がここにマスと駒を生成します -->
-            </div>
+                </div>
         </div>
 
     </div>
@@ -346,6 +339,7 @@
 
     /**
      * サイコロを振るアニメーションを開始し、自動で停止します。
+     * @param {boolean} isCpu - CPUターンかどうか
      */
     function rollDice() {
         if (isRolling || isAnimating || isGameOver) return;
@@ -483,7 +477,7 @@
 
         // マス効果適用 (0番マスは効果なし)
         if (currentPos > 0) {
-             await applyStepEffect(currentPos);
+            await applyStepEffect(currentPos);
         }
         
         isAnimating = false;
@@ -556,11 +550,8 @@
 
     /**
      * 現在のターンのプレイヤーを確認し、次の行動を準備します。
-     * ... (prepareTurn 함수는 변경 없음) ...
      */
     function prepareTurn() {
-        rollButton.disabled = false;
-        
         // 주사위 초기 상태로 되돌림 (시각적 리셋)
         diceCube.style.transform = 'rotateX(0deg) rotateY(0deg) rotateZ(0deg)'; 
         diceCube.classList.remove('rolling'); 
@@ -568,29 +559,33 @@
         // プレイヤーのターン
         if (currentPlayer === 'player') {
             statusMessage.textContent = '🔴 プレイヤーのターンです。サイコロを振ってください。';
+            rollButton.disabled = false;
         
-        // コンピュータのターン
+        // コンピュータのターン (自動進行)
         } else {
             // CPUターンのスキップ確認
             if (playerPiece.dataset.skipNextCpu === 'true') {
                 statusMessage.textContent = '🔵 コンピュータのターンはスキップされます。再度プレイヤーのターンです。';
                 playerPiece.dataset.skipNextCpu = 'false';
+                rollButton.disabled = true;
                 setTimeout(() => {
                     switchTurn(); // プレイヤーのターンに再度交代
                 }, 1500);
             } else {
                 statusMessage.textContent = '🔵 コンピュータのターンです。自動で進行します。';
-                rollButton.disabled = true; 
-                setTimeout(cpuRollAndStop, 1500);
+                rollButton.disabled = true; // CPUターン中はボタンを無効化
+                setTimeout(cpuRollAndMove, 1500); // 1.5秒後にCPUがサイコロを振る
             }
         }
     }
 
     /**
      * コンピュータ(CPU)のサイコロ振りおよび停止ロジックを処理します。
+     * (rollDice 함수를 자동으로 실행하는 CPU 전용 함수)
      */
-    function cpuRollAndStop() {
-        rollDice();
+    function cpuRollAndMove() {
+        if (isGameOver) return;
+        rollDice(); // CPU ターンでも同じ rollDice 함수를 사용 (애니메이션 및 이동 로직 실행)
     }
     
     /**
@@ -662,7 +657,7 @@
         // 2. 内容復元 (マス番号または 'スタート')
         stepDiv.innerHTML = `<span>${isStart ? 'スタート' : stepNum}</span>`;
 
-         // スタートマスはフォントカラーを維持します。
+          // スタートマスはフォントカラーを維持します。
         if (isStart) {
              stepDiv.classList.add('text-white');
              stepDiv.classList.remove('text-gray-800');
