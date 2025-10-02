@@ -1,6 +1,0 @@
-function doGet() {
-  // index.html 파일을 HTML 출력 객체로 생성하고 웹 앱으로 서빙합니다.
-  return HtmlService.createHtmlOutputFromFile('index')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL) // iFrame 실행 허용
-      .setTitle('GAS 楕円ボードすごろくゲーム'); // 브라우저 탭 제목
-}
