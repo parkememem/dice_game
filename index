@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GAS 楕円ボードすごろくゲーム (3Dサイコロ)</title>
+    <!-- Tailwind CSS ロード -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* カスタム CSS およびフォント設定 */
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        
+        /* ボードコンテナの比率維持のためのラッパー */
+        .board-wrapper {
+            position: relative;
+            width: 100%;
+            /* 4:3 比率のボードのために max-width 基準の高さ設定 (75%) */
+            padding-top: 75%; 
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #e5e7eb;
+            border-radius: 20px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .board-container {
+            /* マスが絶対位置で配置される領域 */
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* 個別マスのラッパー (駒とマスの位置基準) */
+        .step-wrapper {
+            position: absolute; 
+            width: 70px; 
+            height: 70px; 
+            transform: translate(-50%, -50%); /* 中心を基準に位置調整 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+        }
+
+        .step {
+            /* 原型スタイル: 完全な円形 */
+            border-radius: 50%; 
+            width: 60px; /* 고정 크기 */
+            height: 60px; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            transition: all 0.3s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 2px solid transparent;
+            text-align: center;
+            line-height: 1.2;
+            color: #1f2937; /* 基本テキストカラー */
+        }
+        
+        /* マウスオーバー時に適用されるスタイル: 丸い四角形に拡大 (効果表示用) */
+        .step.hover-show-effect {
+            border-radius: 12px; /* 丸い四角形 */
+            width: 110px; 
+            height: 110px; 
+            flex-direction: column; /* テキストを縦に配置 */
+            padding: 5px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            transform: scale(1.2); /* 周囲と区別されるように少し拡大 */
+            z-index: 20; /* 他の要素の上に表示 */
+        }
+
+        /* 駒が現在位置するマスのハイライト */
+        .current-step {
+            border-color: #3b82f6;
+            transform: scale(1.1);
+            box-shadow: 0 0 15px rgba(59, 130, 246, 0.6);
+        }
+        
+        /* スタートマス (0番) 特別スタイル */
+        #step-0 {
+             background-color: #374151;
+             color: white;
+             font-size: 1.25rem;
+             font-weight: 700;
+        }
+
+        /* プレイヤー駒スタイル */
+        .piece {
+            position: absolute;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: white;
+            transition: transform 0.5s ease-in-out; 
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            /* マス中央を基準に位置調整 */
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #playerPiece { background-color: #ef4444; top: 30%; z-index: 11;} /* 上側 */
+        #cpuPiece { background-color: #3b82f6; top: 70%; z-index: 11;} /* 下側 */
+
+        /* --- 3D サイコロ スタイル --- */
+        #diceArea {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10;
+            perspective: 500px; /* 3D 奥行きを追加 */
+        }
+        
+        .dice-cube {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            transform-style: preserve-3d;
+            transition: transform 1.5s ease-out; /* 停止アニメーション */
+            transform: rotateX(-20deg) rotateY(20deg); /* 初期表示角度 */
+        }
+
+        .face {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            border: 2px solid #3b82f6;
+            background-color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 40px;
+            color: #374151;
+            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+        }
+
+        /* 各面の位置調整 */
+        .front  { transform: rotateY(0deg) translateZ(40px); }
+        .back   { transform: rotateY(180deg) translateZ(40px); }
+        .right  { transform: rotateY(90deg) translateZ(40px); }
+        .left   { transform: rotateY(-90deg) translateZ(40px); }
+        .top    { transform: rotateX(90deg) translateZ(40px); }
+        .bottom { transform: rotateX(-90deg) translateZ(40px); }
+
+        /* 回転アニメーション効果 (連続回転) */
+        @keyframes tumble {
+            0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+            100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
+        }
+        .rolling {
+            animation: tumble 0.1s infinite linear; /* 線形アニメーションで継続回転 */
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-6xl mx-auto bg-white p-6 rounded-xl shadow-2xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">🎲 GAS 楕円ボードすごろくゲーム 🎲</h1>
+        <p class="text-center text-gray-500 mb-6">プレイヤー(🔴) vs コンピュータ(🔵)。全30ステージ！</p>
+
+        <!-- ゲーム状態およびサイコロ領域 (上部に配置) -->
+        <div class="flex flex-col md:flex-row items-center justify-center bg-gray-100 p-4 rounded-lg shadow-inner mb-6 space-y-4 md:space-y-0 md:space-x-8">
+            
+            <!-- ステータスメッセージ -->
+            <div id="statusMessage" class="text-xl font-semibold h-8 text-center text-red-600 w-full md:w-1/3 flex items-center justify-center">
+                プレイヤーのターンです。
+            </div>
+            
+            <!-- サイコロボタン (ボード中央ではなく 위쪽 상태창에 배치) -->
+            <div class="flex flex-col items-center w-full md:w-1/3">
+                <button id="rollButton" 
+                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full shadow-lg transition duration-150 ease-in-out transform hover:scale-105 disabled:opacity-50"
+                        onclick="rollDice()">
+                    サイコロを振る (自動停止)
+                </button>
+            </div>
+            
+            <!-- 結果メッセージ -->
+            <div id="gameResult" class="text-center text-2xl font-extrabold text-green-700 hidden w-full md:w-1/3 p-2 bg-yellow-100 rounded-lg"></div>
+
+        </div>
+
+        <!-- ボードコンテナ (タワー経路) -->
+        <div class="board-wrapper">
+            <div id="diceArea">
+                <!-- 3Dサイコロコンポーネント -->
+                <div id="dice-cube" class="dice-cube">
+                    <div class="face front" data-num="1">1</div>
+                    <div class="face back" data-num="6">6</div>
+                    <div class="face right" data-num="3">3</div>
+                    <div class="face left" data-num="4">4</div>
+                    <div class="face top" data-num="5">5</div>
+                    <div class="face bottom" data-num="2">2</div>
+                </div>
+            </div>
+            <div id="gameBoard" class="board-container">
+                <!-- JavaScript がここにマスと駒を生成します -->
+            </div>
+        </div>
+
+    </div>
+
+<script>
+    // 定数
+    const NUM_STEPS = 30; // 1番から30番までのゲームマス
+    const TOTAL_TILES = 31; // 0番(スタート) + 1〜30番のマス
+    const WIN_STEP = NUM_STEPS;
+    const STEP_COLORS = ['bg-yellow-300', 'bg-green-300', 'bg-red-300', 'bg-purple-300'];
+
+    // ゲームの状態
+    let playerPos = 0; // スタートは0番マス
+    let cpuPos = 0;
+    let currentPlayer = 'player'; // 'player' または 'cpu'
+    let isRolling = false;
+    let isAnimating = false;
+    let isGameOver = false;
+
+    // DOM 要素
+    const board = document.getElementById('gameBoard');
+    const rollButton = document.getElementById('rollButton');
+    const statusMessage = document.getElementById('statusMessage');
+    const gameResult = document.getElementById('gameResult');
+    const diceCube = document.getElementById('dice-cube'); // 3Dサイコロ要素
+
+    // 駒は動的に生成され、ここに格納されます
+    let playerPiece = null;
+    let cpuPiece = null;
+
+    // マス効果マップ (0番から30番まで)
+    const stepEffects = {
+        0: { name: "スタート", effect: "サイコロを振って1番マスへ移動します。", type: "start" },
+        3: { name: "ボーナスマス", effect: "前に2マス進む！", move: 2, type: "bonus" },
+        7: { name: "ペナルティマス", effect: "後ろに3マス戻る！", move: -3, type: "penalty" },
+        12: { name: "もう一度", effect: "サイコロをもう一度振ります。", extraTurn: true, type: "extra" },
+        18: { name: "CPU妨害", effect: "CPUの次のターンをスキップします。", skipNext: 'cpu', type: "bonus" },
+        25: { name: "ペナルティマス", effect: "後ろに5マス戻る！", move: -5, type: "penalty" },
+        30: { name: "ゴール", effect: "勝利！ 🎉", type: "win" }
+    };
+
+    /**
+     * 타원형 경로에 따라 마스의 정보를 바탕으로 HTML을 생성하고 DOM에 추가합니다.
+     */
+    function createBoard() {
+        board.innerHTML = '';
+        
+        // --- 타원 경로 위치 계산 설정 (퍼센트 기준) ---
+        const CENTER_X = 50; // 中央 X (50%)
+        const CENTER_Y = 50; // 中央 Y (50%)
+        const R_X = 35; // 가로 반지름 (35%)
+        const R_Y = 30; // 세로 반지름 (30%)
+        // 30개의 마스를 타원 경로에 따라 배치합니다.
+        const ANGLE_STEP = (2 * Math.PI) / (TOTAL_TILES - 1); // 30개의 세그먼트
+        const ANGLE_OFFSET = Math.PI * 1.5; // 시작점을 상단 중앙(270도) 근처로 설정
+
+        
+        // 駒オブジェクト生成 (グローバル変数に格納)
+        playerPiece = document.createElement('div');
+        playerPiece.id = 'playerPiece';
+        playerPiece.className = 'piece bg-red-500';
+        playerPiece.style.top = '30%'; 
+        playerPiece.textContent = 'P';
+
+        cpuPiece = document.createElement('div');
+        cpuPiece.id = 'cpuPiece';
+        cpuPiece.className = 'piece bg-blue-500';
+        cpuPiece.style.top = '70%'; 
+        cpuPiece.textContent = 'C';
+
+
+        for (let i = 0; i < TOTAL_TILES; i++) {
+            const stepNum = i;
+            const isStart = stepNum === 0;
+            
+            // "通常マス" を排除し、通常のマスは "${stepNum}番" の名前を持つように 수정
+            const effect = stepEffects[stepNum] || { name: `${stepNum}番`, effect: "何も起こりません。", type: "normal" };
+            const colorClass = isStart ? 'bg-gray-400' : STEP_COLORS[stepNum % STEP_COLORS.length];
+
+            let x, y;
+
+            if (isStart) {
+                // 'スタート' (0번) 발판을 1번 발판의 경로 시작점 바로 옆에 명확하게 배치 (좌표 수동 오프셋)
+                const angle1 = 1 * ANGLE_STEP + ANGLE_OFFSET;
+                x = CENTER_X + R_X * Math.cos(angle1) - 10;
+                y = CENTER_Y + R_Y * Math.sin(angle1) - 10;
+                
+            } else {
+                // 1번부터 30번까지 타원형 경로를 따라 배치
+                const angle = (i - 1) * ANGLE_STEP + ANGLE_OFFSET; 
+                x = CENTER_X + R_X * Math.cos(angle);
+                y = CENTER_Y + R_Y * Math.sin(angle);
+            }
+            
+            // ラッパー生成
+            const stepWrapper = document.createElement('div');
+            stepWrapper.id = `step-wrapper-${stepNum}`;
+            stepWrapper.className = `step-wrapper group z-50`; 
+            // 絶対位置設定 (パーセント使用)
+            stepWrapper.style.left = `${x}%`;
+            stepWrapper.style.top = `${y}%`;
+            
+            // マス本体
+            const stepDiv = document.createElement('div');
+            stepDiv.id = `step-${stepNum}`;
+            stepDiv.dataset.step = stepNum;
+            stepDiv.dataset.name = isStart ? 'スタート' : effect.name;
+            stepDiv.dataset.effect = effect.effect;
+            stepDiv.className = `step ${colorClass} text-gray-800 transition duration-150 ease-in-out`;
+            stepDiv.innerHTML = `<span>${isStart ? 'スタート' : stepNum}</span>`;
+            
+            stepWrapper.appendChild(stepDiv);
+
+            // 初期位置 (0番マスに駒を配置)
+            if (isStart) {
+                stepWrapper.appendChild(playerPiece);
+                stepWrapper.appendChild(cpuPiece);
+            }
+            
+            // マスホバーイベントリスナーを追加: マスの形と内容を直接変更
+            stepWrapper.addEventListener('mouseenter', showEffectDetails);
+            stepWrapper.addEventListener('mouseleave', hideEffectDetails);
+
+            board.appendChild(stepWrapper);
+        }
+
+        // 最終マス強調 (30番)
+        const finalStep = document.getElementById(`step-${WIN_STEP}`);
+        if(finalStep) {
+            finalStep.classList.add('bg-yellow-500', 'ring-4', 'ring-yellow-400', 'text-white', 'text-lg');
+            finalStep.classList.remove('bg-yellow-300');
+        }
+
+        // 初期位置ハイライト (0번 마스)
+        const startStep = document.getElementById('step-0');
+        if (startStep) startStep.classList.add('current-step');
+    }
+
+    /**
+     * サイコロを振るアニメーションを開始し、自動で停止します。
+     */
+    function rollDice() {
+        if (isRolling || isAnimating || isGameOver) return;
+        isRolling = true;
+        rollButton.disabled = true; 
+
+        // 3Dアニメーション開始
+        diceCube.classList.add('rolling');
+        
+        statusMessage.textContent = `${currentPlayer === 'player' ? '🔴 プレイヤー' : '🔵 コンピュータ'}がサイコロを振っています...`;
+
+        // 1.5秒後に自動で停止
+        setTimeout(stopDice, 1500);
+    }
+
+    /**
+     * サイコロを止め、結果を処理します。 (自動停止用)
+     */
+    function stopDice() {
+        if (!isRolling) return;
+        
+        diceCube.classList.remove('rolling');
+        
+        const finalRoll = Math.floor(Math.random() * 6) + 1;
+        
+        // --- 3D サイコロの停止ロジック ---
+        
+        // 最終的な面が上に来るようにするための基本回転
+        const rotations = {
+            1: [0, 0, 0],   // front
+            2: [90, 0, 0],  // bottom
+            3: [0, -90, 0], // right
+            4: [0, 90, 0],  // left
+            5: [-90, 0, 0], // top
+            6: [180, 0, 0]  // back (rotateX(180) or rotateY(180))
+        };
+        
+        // 乱数の回転数 (4~8回転)
+        const randomTurns = Math.floor(Math.random() * 5 + 4) * 360; 
+        
+        // 最終位置に必要な回転を取得し、ランダムな回転数と結合
+        const [xBase, yBase, zBase] = rotations[finalRoll];
+        
+        // 最終回転値 (ランダムな回転 + 最終面)
+        const finalX = randomTurns + xBase + Math.floor(Math.random() * 30) - 15; // わずかなブレを追加
+        const finalY = randomTurns + yBase + Math.floor(Math.random() * 30) - 15;
+        const finalZ = randomTurns + zBase + Math.floor(Math.random() * 30) - 15;
+        
+        diceCube.style.transform = `rotateX(${finalX}deg) rotateY(${finalY}deg) rotateZ(${finalZ}deg)`;
+        
+        // 停止した面の内容を更新 (なくても良いが確認用)
+        const faces = diceCube.querySelectorAll('.face');
+        faces.forEach(face => {
+            if (parseInt(face.dataset.num) === finalRoll) {
+                face.style.opacity = 1;
+            } else {
+                face.style.opacity = 0.8; 
+            }
+        });
+        
+        isRolling = false;
+        
+        statusMessage.textContent = `${currentPlayer === 'player' ? '🔴 プレイヤー' : '🔵 コンピュータ'}のサイコロの結果: ${finalRoll}！ ${finalRoll}マス進みます。`;
+        
+        setTimeout(() => handleMove(finalRoll), 500);
+    }
+    
+    /**
+     * 駒を指定されたマスへ移動させ、視覚的に更新します。
+     * ... (updatePiecePosition 함수는 변경 없음) ...
+     */
+    async function updatePiecePosition(pieceId, newPos, oldPos) {
+        const piece = pieceId === 'player' ? playerPiece : cpuPiece;
+        
+        // 以前のマスのハイライトを削除
+        if (oldPos >= 0 && oldPos < TOTAL_TILES) {
+            const oldStep = document.getElementById(`step-${oldPos}`);
+            if (oldStep) oldStep.classList.remove('current-step');
+        }
+        
+        // 新しいマスへ駒を移動
+        if (newPos >= 0 && newPos < TOTAL_TILES) {
+            const newWrapper = document.getElementById(`step-wrapper-${newPos}`);
+            const newStep = document.getElementById(`step-${newPos}`);
+            
+            if (newWrapper && newStep) {
+                // 駒要素を新しいラッパーへ移動
+                newWrapper.appendChild(piece);
+                newStep.classList.add('current-step');
+            }
+        }
+    }
+
+    /**
+     * 駒を動かし、マス効果を適用し、ターンを終了します。
+     * ... (handleMove 함수는 변경 없음) ...
+     */
+    async function handleMove(roll) {
+        if (isAnimating) return;
+        isAnimating = true;
+
+        const pieceId = currentPlayer === 'player' ? 'player' : 'cpu';
+        let oldPos = pieceId === 'player' ? playerPos : cpuPos;
+        let newPos = oldPos;
+        
+        // 移動アニメーション (1マスずつ)
+        for (let i = 1; i <= roll; i++) {
+            newPos = oldPos + i;
+            if (newPos > WIN_STEP) {
+                newPos = WIN_STEP;
+                i = roll; // ループ終了
+            }
+            
+            if (pieceId === 'player') {
+                playerPos = newPos;
+            } else {
+                cpuPos = newPos;
+            }
+            
+            // 1マスずつ移動しながら視覚的に更新
+            updatePiecePosition(pieceId, newPos, newPos - 1); 
+            await new Promise(resolve => setTimeout(resolve, 350)); 
+            
+            if (newPos === WIN_STEP) break;
+        }
+
+        // 最終位置
+        let currentPos = pieceId === 'player' ? playerPos : cpuPos;
+        
+        // 勝利判定
+        if (currentPos === WIN_STEP) {
+            endGame();
+            return;
+        }
+
+        // マス効果適用 (0番マスは効果なし)
+        if (currentPos > 0) {
+             await applyStepEffect(currentPos);
+        }
+        
+        isAnimating = false;
+
+        // ターン終了と次のターンの準備
+        if (!isGameOver) {
+            // 追加ターンがない場合はターン変更
+            if (!stepEffects[currentPos] || !stepEffects[currentPos].extraTurn) {
+                switchTurn();
+            } else {
+                statusMessage.textContent = `${pieceId === 'player' ? '🔴 プレイヤー' : '🔵 コンピュータ'}！ ${stepEffects[currentPos].effect} もう一度振ってください。`;
+                setTimeout(prepareTurn, 1000);
+            }
+        }
+    }
+    
+    /**
+     * マス効果を適用します。
+     * ... (applyStepEffect 함수는 변경 없음) ...
+     */
+    async function applyStepEffect(pos) {
+        const effect = stepEffects[pos];
+        if (!effect || effect.type === 'normal') return;
+
+        const pieceId = currentPlayer === 'player' ? 'player' : 'cpu';
+        
+        statusMessage.textContent = `⚡️ マス効果: ${effect.effect}！`;
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        if (effect.move) {
+            let oldPos = pieceId === 'player' ? playerPos : cpuPos;
+            let newPos;
+            const moveAmount = effect.move;
+
+            if (pieceId === 'player') {
+                // 最低1番マスを維持 (スタートマスへは戻らない)
+                playerPos = Math.max(1, Math.min(WIN_STEP, playerPos + moveAmount));
+                newPos = playerPos;
+            } else {
+                cpuPos = Math.max(1, Math.min(WIN_STEP, cpuPos + moveAmount));
+                newPos = cpuPos;
+            }
+            
+            // 効果による移動アニメーション
+            updatePiecePosition(pieceId, newPos, oldPos);
+            await new Promise(resolve => setTimeout(resolve, 800)); 
+
+            // 効果によって勝利することもあり得ます
+            if (newPos === WIN_STEP) {
+                endGame();
+                return;
+            }
+        }
+        
+        // CPUターン スキップ効果
+        if (effect.skipNext === 'cpu' && currentPlayer === 'player') {
+            playerPiece.dataset.skipNextCpu = 'true';
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    /**
+     * ターンを交代します。
+     * ... (switchTurn 함수는 변경 없음) ...
+     */
+    function switchTurn() {
+        currentPlayer = currentPlayer === 'player' ? 'cpu' : 'player';
+        prepareTurn();
+    }
+
+    /**
+     * 現在のターンのプレイヤーを確認し、次の行動を準備します。
+     * ... (prepareTurn 함수는 변경 없음) ...
+     */
+    function prepareTurn() {
+        rollButton.disabled = false;
+        
+        // 주사위 초기 상태로 되돌림 (시각적 리셋)
+        diceCube.style.transform = 'rotateX(0deg) rotateY(0deg) rotateZ(0deg)'; 
+        diceCube.classList.remove('rolling'); 
+        
+        // プレイヤーのターン
+        if (currentPlayer === 'player') {
+            statusMessage.textContent = '🔴 プレイヤーのターンです。サイコロを振ってください。';
+        
+        // コンピュータのターン
+        } else {
+            // CPUターンのスキップ確認
+            if (playerPiece.dataset.skipNextCpu === 'true') {
+                statusMessage.textContent = '🔵 コンピュータのターンはスキップされます。再度プレイヤーのターンです。';
+                playerPiece.dataset.skipNextCpu = 'false';
+                setTimeout(() => {
+                    switchTurn(); // プレイヤーのターンに再度交代
+                }, 1500);
+            } else {
+                statusMessage.textContent = '🔵 コンピュータのターンです。自動で進行します。';
+                rollButton.disabled = true; 
+                setTimeout(cpuRollAndStop, 1500);
+            }
+        }
+    }
+
+    /**
+     * コンピュータ(CPU)のサイコロ振りおよび停止ロジックを処理します。
+     */
+    function cpuRollAndStop() {
+        rollDice();
+    }
+    
+    /**
+     * ゲーム終了処理
+     * ... (endGame 함수는 변경 없음) ...
+     */
+    function endGame() {
+        isGameOver = true;
+        rollButton.disabled = true;
+        diceCube.classList.remove('rolling');
+        
+        const winner = currentPlayer === 'player' ? '🔴 プレイヤー' : '🔵 コンピュータ';
+        gameResult.textContent = `${winner}が勝利しました！ 🎉`;
+        gameResult.classList.remove('hidden');
+        statusMessage.textContent = 'ゲーム終了！';
+    }
+
+    // --- UI/UX のためのユーティリティ関数 (効果表示) ---
+
+    /**
+     * マウスオーバー時、マスの形を丸い四角形に変更し、効果を表示します。
+     * ... (showEffectDetails 함수는 변경 없음) ...
+     */
+    function showEffectDetails(e) {
+        let stepWrapper = e.currentTarget;
+        const stepDiv = stepWrapper.querySelector('.step');
+        if (!stepDiv) return;
+        
+        const stepNum = stepDiv.dataset.step;
+        const name = stepDiv.dataset.name;
+        const effect = stepDiv.dataset.effect;
+        const isStart = stepNum === '0';
+
+        // 1. 丸い四角形スタイルクラスを追加し、z-indexを調整
+        stepDiv.classList.add('hover-show-effect');
+        stepWrapper.style.zIndex = 20;
+        
+        // 2. 内容変更 (マス効果の表示)
+        stepDiv.innerHTML = `
+            <div class="font-bold text-sm truncate">${name}</div>
+            <div class="text-xs mt-1 text-center font-normal break-words">${effect}</div>
+        `;
+
+        // スタートマスはフォントカラーを維持します。
+        if (isStart) {
+             stepDiv.classList.remove('text-gray-800');
+             stepDiv.classList.add('text-white');
+        } else {
+             stepDiv.classList.add('text-gray-800');
+        }
+    }
+
+    /**
+     * マウスアウト時、マスの形を元の円形に戻し、番号を復元します。
+     * ... (hideEffectDetails 함수는 변경 없음) ...
+     */
+    function hideEffectDetails(e) {
+        let stepWrapper = e.currentTarget;
+        const stepDiv = stepWrapper.querySelector('.step');
+        if (!stepDiv) return;
+
+        const stepNum = stepDiv.dataset.step;
+        const isStart = stepNum === '0';
+        
+        // 1. スタイル復元
+        stepDiv.classList.remove('hover-show-effect');
+        stepWrapper.style.zIndex = 5;
+        
+        // 2. 内容復元 (マス番号または 'スタート')
+        stepDiv.innerHTML = `<span>${isStart ? 'スタート' : stepNum}</span>`;
+
+         // スタートマスはフォントカラーを維持します。
+        if (isStart) {
+             stepDiv.classList.add('text-white');
+             stepDiv.classList.remove('text-gray-800');
+        } else {
+             stepDiv.classList.remove('text-white');
+             stepDiv.classList.add('text-gray-800');
+        }
+    }
+
+    /**
+     * 初期化関数
+     */
+    function initGame() {
+        // ゲーム状態初期化
+        playerPos = 0; // スタートマス (0番)
+        cpuPos = 0;
+        currentPlayer = 'player';
+        isRolling = false;
+        isAnimating = false;
+        isGameOver = false;
+        gameResult.classList.add('hidden');
+        
+        createBoard();
+        prepareTurn();
+    }
+
+    // ゲーム開始
+    window.onload = initGame;
+</script>
+</body>
+</html>
